@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ambientes Virtuais
+venv/
+env/
+.venv/
+
+# Arquivos de credenciais e configuração
+.env
+client_secrets.json
+token.json
