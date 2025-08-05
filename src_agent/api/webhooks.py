@@ -21,11 +21,14 @@ async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
     session_id = From
     graph_input = {"input": Body}
     graph_config = {"configurable": {"session_id": session_id}}
+
     final_state = agent_executor.invoke(graph_input, graph_config)
 
-    intent_result = final_state.get('intent_result', {})
-    response_body = json.dumps(intent_result, indent=2, ensure_ascii=False)
+    last_message = final_state.get('messages', [])[-1]
+    response_body = last_message.content if last_message else "Erro ao processar solicitação."
 
+    print(f"Resposta final do Agente: {response_body}")
+    
     try:
         twilio_client.messages.create(
             from_=config.TWILIO_PHONE_NUMBER,
