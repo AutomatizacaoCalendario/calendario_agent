@@ -16,7 +16,7 @@ class AgentState(TypedDict):
 def intent_node(state: AgentState):
     """Chama o sub-grafo de intenção para analisar a mensagem do usuário."""    
     graph_input = {"user_message": state["input"]}
-    intent_data = intent_graph_runnable.invoke(graph_input, state)
+    intent_data = intent_graph_runnable.invoke(graph_input)
     
     return {"intent_result": intent_data.get('intent_result', {})}
 
