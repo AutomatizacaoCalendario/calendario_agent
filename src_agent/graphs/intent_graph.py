@@ -1,25 +1,21 @@
-# Em: src_agent/graphs/intent_graph.py
-
 import datetime
 from typing import Literal, Optional
 
-from langchain_core.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from langchain_openai import AzureChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import PydanticOutputParser
 
 from src_agent import config
 
-# --- Definição da Estrutura de Saída (O "Contrato") ---
-# Usamos uma classe Pydantic para dizer ao LLM exatamente como queremos a resposta.
-
 class Intent(BaseModel):
-    """A intenção do usuário extraída do texto."""
     intent: Literal[
         "AGENDAR_TAREFA", 
         "CONSULTAR_CALENDARIO", 
         "ATUALIZAR_STATUS_TAREFA", 
         "CONVERSA_GERAL"
     ] = Field(
-        ..., # ... significa que o campo é obrigatório
+        ...,
         description="A intenção principal do usuário."
     )
     task_description: Optional[str] = Field(
@@ -36,14 +32,11 @@ class Intent(BaseModel):
     )
 
 
-# --- Função Principal do Grafo ---
-
 def get_intent(user_message: str) -> dict:
     """
-    Analisa a mensagem do usuário e retorna um dicionário estruturado com a intenção.
+    Analisa a mensagem do usuário usando prompt engineering e um parser de saída
+    para garantir a compatibilidade com versões mais antigas da API do Azure.
     """
-    # Nota: No LangGraph, isso se tornará um nó. Por enquanto, é uma função simples.
-    
     llm = AzureChatOpenAI(
         azure_deployment=config.AZURE_OPENAI_DEPLOYMENT_NAME,
         openai_api_version=config.OPENAI_API_VERSION,
@@ -52,30 +45,35 @@ def get_intent(user_message: str) -> dict:
         temperature=0
     )
 
-    # Usamos .with_structured_output para forçar o LLM a responder no formato da nossa classe Intent
-    structured_llm = llm.with_structured_output(Intent)
+    # 1. Criamos uma instância do parser, usando nossa classe Pydantic como guia.
+    parser = PydanticOutputParser(pydantic_object=Intent)
 
-    # A data de hoje é passada como contexto para o LLM saber o que é "hoje", "amanhã", etc.
-    today = datetime.date.today().strftime("%A, %Y-%m-%d") # ex: Monday, 2025-08-04
-    
-    prompt = f"""
-    Analise a seguinte mensagem do usuário. A data de hoje é {today}.
-    Extraia a intenção e as entidades relevantes conforme a estrutura definida.
+    # 2. Criamos um template de prompt que inclui as instruções de formatação do parser.
+    #    Isso diz explicitamente ao LLM como formatar a saída.
+    today = datetime.date.today().strftime("%A, %Y-%m-%d")
+    prompt_template = ChatPromptTemplate.from_template(
+        template="""Analise a mensagem do usuário. A data de hoje é {today}.
+Sua tarefa é extrair a intenção e as entidades relevantes.
+Responda APENAS com um objeto JSON, seguindo estritamente as instruções de formatação abaixo.
+NÃO adicione nenhuma palavra ou comentário extra antes ou depois do JSON.
 
-    Exemplos:
-    - "marcar a entrega do projeto para sexta que vem" -> intent: AGENDAR_TAREFA
-    - "o que eu tenho pra fazer amanhã?" -> intent: CONSULTAR_CALENDARIO
-    - "a tarefa 'ligar para o orientador' já foi feita" -> intent: ATUALIZAR_STATUS_TAREFA
-    - "oi tudo bem?" -> intent: CONVERSA_GERAL
+{format_instructions}
 
-    Mensagem do usuário: "{user_message}"
-    """
-    
+MENSAGEM DO USUÁRIO:
+{user_message}
+""",
+        partial_variables={"format_instructions": parser.get_format_instructions()},
+    )
+
+    # 3. Criamos uma "cadeia" (chain) que conecta o prompt, o LLM e o parser.
+    chain = prompt_template | llm | parser
+
     try:
-        response_intent = structured_llm.invoke(prompt)
-        # Convertemos o objeto Pydantic para um dicionário para fácil manipulação posterior
+        # 4. Invocamos a cadeia. Ela fará todo o trabalho: formata o prompt,
+        #    chama o LLM, pega a resposta em texto e a converte para o nosso objeto Intent.
+        response_intent = chain.invoke({"today": today, "user_message": user_message})
         return response_intent.dict()
+        
     except Exception as e:
         print(f"Erro ao analisar a intenção: {e}")
-        # Em caso de erro, podemos ter uma intenção padrão ou de falha
         return {"intent": "FALHA_NA_ANALISE", "error": str(e)}

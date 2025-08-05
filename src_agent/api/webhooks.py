@@ -2,7 +2,6 @@ import json
 
 from fastapi import APIRouter, Form, Response
 from twilio.rest import Client
-from langchain_core.messages import HumanMessage
 
 from src_agent import config
 from src_agent.core.agent_executor import agent_executor
@@ -20,7 +19,7 @@ async def whatsapp_webhook(From: str = Form(...), Body: str = Form(...)):
     print(f"Mensagem recebida de {From}: {Body}")
 
     session_id = From
-    graph_input = {"messages": [HumanMessage(content=Body)]}
+    graph_input = {"input": Body}
     graph_config = {"configurable": {"session_id": session_id}}
     final_state = agent_executor.invoke(graph_input, graph_config)
 
